@@ -55,10 +55,21 @@ Data is persisted in the named volume `postgres_data`.
 
 ## Re-importing from scratch
 
+`data/` is a git-ignored, reusable directory — you only download it once. To fully reset the
+database:
+
 ```bash
-docker compose down -v     # destroys the volume and all loaded data
-./scripts/download-data.sh # ensure data/ is populated (from step 2 above)
-docker compose up -d       # re-runs schema + import
+# 1. Download data only if missing (data/ is reused across re-imports)
+test -d data || ./scripts/download-data.sh
+
+# 2. Destroy the volume (and the containers/network)
+docker compose down -v
+
+# 3. Recreate everything; schema init + CSV import run automatically
+docker compose up -d
+
+# 4. Confirm the import finished
+docker logs -f mimic3-loader
 ```
 
 ## Notes
