@@ -79,6 +79,12 @@ docker logs -f mimic3-loader
 - Running `docker compose up` on an already-populated volume starts the loader again and
   will **duplicate rows**. Only re-import on an empty volume (see above).
 
+## Learning resources
+
+A progressive set of verified SQL examples (beginner → expert) with explanations and
+clinical use cases lives in [`sql/examples/`](sql/examples/README.md). It covers window
+functions, CTEs, recursive queries, pivots, and more — all runnable against this database.
+
 ## License and citation
 
 Data provided by PhysioNet under the
