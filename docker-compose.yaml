@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: mimic3-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mimic}
+      POSTGRES_USER: ${POSTGRES_USER:-mimic}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mimic_password_change_me}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/01-create-schema.sql:/docker-entrypoint-initdb.d/01-create-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  loader:
+    image: postgres:16
+    container_name: mimic3-loader
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-mimic}
+      PGUSER: ${POSTGRES_USER:-mimic}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-mimic_password_change_me}
+      MIMIC_DATA_DIR: /data
+    volumes:
+      - ./data:/data:ro
+      - ./sql/02-load-csvs.sh:/scripts/02-load-csvs.sh:ro
+    entrypoint: ["/bin/bash", "/scripts/02-load-csvs.sh"]
+    restart: "no"
+
+volumes:
+  postgres_data:

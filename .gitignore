@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Local environment (keep .env.example)
+.env
+.env.*
+!.env.example
+
+# MIMIC demo data (fetch with scripts/download-data.sh)
+data/
+
+# Archives
+*.zip
