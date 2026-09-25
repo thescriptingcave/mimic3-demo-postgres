@@ -1,8 +1,7 @@
 # SQL Examples for the MIMIC-III Demo Database
 
 A progressive, clinically-flavoured SQL course that runs against the MIMIC-III demo
-database loaded by this repository. Every query has been executed and verified against
-the demo data (100 patients, 26 tables).
+database loaded by this repository (100 patients, 26 tables).
 
 | File | Level | Techniques covered |
 | ---- | ----- | ------------------ |
@@ -27,8 +26,8 @@ Query labels below (e.g. `[B3]`) match comments inside the files — grep for th
 jump to a specific example.
 
 The demo dataset is small, but several tables (`chartevents`, `labevents`) have
-hundreds of thousands of rows, so every example is written with a `WHERE` filter or
-`LIMIT` to keep runs fast.
+hundreds of thousands of rows. Queries on those tables use a `WHERE` filter or `LIMIT`
+to keep runs fast. The schema creates no indexes, so `[A12]` is the slowest example.
 
 ---
 
@@ -42,7 +41,7 @@ Core reading/aggregation: writing a query, filtering rows, and summarizing group
 | `[B2]` | Column list + `ORDER BY` | Pull only the columns you need |
 | `[B3]` | `WHERE` + `=` | CCU ICU stays |
 | `[B4]` | `WHERE` + comparison | Admissions since 2150 |
-| `[B5]` | `BETWEEN` | Labs in a date range |
+| `[B5]` | `BETWEEN` | Potassium values in the normal range (and why not to use it on timestamps) |
 | `[B6]` | `IN` list | Only elective/urgent admissions |
 | `[B7]` | `LIKE` pattern | Ethnicity containing "ASIAN" |
 | `[B8]` | `IS NULL` | Admissions with no ED registration time |
@@ -56,8 +55,9 @@ Core reading/aggregation: writing a query, filtering rows, and summarizing group
 | `[B16]` | `EXTRACT(YEAR ...)` + `GROUP BY` | Admissions per year |
 
 **Key mental model:** `WHERE` filters *rows*; `GROUP BY` collapses rows into groups; `HAVING`
-filters *groups* (it runs after aggregation). Aggregates like `count(*)/avg(...)` are
-only allowed because of `GROUP BY`.
+filters *groups* (it runs after aggregation). Without `GROUP BY`, aggregates like
+`count(*)`/`avg(...)` treat the whole table as one group (`[B11]`, `[B12]`); with
+`GROUP BY`, every selected column must be either grouped or aggregated.
 
 ---
 
@@ -71,14 +71,14 @@ Relational thinking: how to combine tables and use subqueries.
 | `[I2]` | 3-table JOIN | Patient + admission + ICU record |
 | `[I3]` | `LEFT JOIN` | Keep admissions that lack an ICU stay |
 | `[I4]` | Anti-join (`LEFT JOIN ... IS NULL`) | Admissions **without** any ICU stay |
-| `[I5]` | Self join | Readmission pairs (days between) |
+| `[I5]` | Self join | Earlier/later admission pairs (days between) |
 | `[I6]` | Scalar subquery in `WHERE` | ICU stays longer than average |
 | `[I7]` | Derived table in `FROM` | Filter on a per-patient summary |
-| `[I8]` | `EXISTS` | Patients who had any microbiology culture |
-| `[I9]` | `CASE` expression | Bucket ICU stays into short/normal/long |
-| `[I10]` | `COALESCE` | First known death date |
-| `[I11]` | String functions | Normalize ethnicity for grouping |
-| `[I12]` | `AGE()` + `EXTRACT` | Patient age at ICU admission |
+| `[I8]` | `EXISTS` | ICU patients who also had a microbiology culture |
+| `[I9]` | `CASE` expression | Bucket ICU stays into unknown/short/normal/long |
+| `[I10]` | `COALESCE` | Death date with a fallback source |
+| `[I11]` | String functions | Collapse ethnicity labels into broad groups |
+| `[I12]` | `AGE()` + `EXTRACT` | Patient age at ICU admission (with the 90+ caveat) |
 | `[I13]` | JOIN + `GROUP BY` + `HAVING` | Top patients by potassium labs |
 | `[I14]` | JOIN + value range | Abnormal high-potassium events |
 
@@ -99,9 +99,9 @@ Composable queries (CTEs) and the workhorse of analytics: window functions.
 | `[A3]` | `ROW_NUMBER()` | Most recent ICU stay per patient |
 | `[A4]` | `RANK()` vs `DENSE_RANK()` | Rank care units by stay count |
 | `[A5]` | `NTILE(4)` | Assign LOS quartiles |
-| `[A6]` | `LAG()` | Gap between consecutive unit transfers |
+| `[A6]` | `LAG()` / `LEAD()` + named `WINDOW` | Gap between consecutive unit transfers |
 | `[A7]` | Window `sum()` (running total) | Cumulative ICU admissions over time |
-| `[A8]` | Explicit `ROWS BETWEEN` frame | 7-day trailing average admissions |
+| `[A8]` | Explicit `RANGE BETWEEN INTERVAL` frame | 7-calendar-day trailing average admissions |
 | `[A9]` | `FIRST_VALUE` / `LAST_VALUE` | First vs last potassium per patient |
 | `[A10]` | Window share of total | % of all labs a patient contributed |
 | `[A11]` | `DISTINCT ON` | Earliest ICU admission per patient |
@@ -109,7 +109,8 @@ Composable queries (CTEs) and the workhorse of analytics: window functions.
 
 **Key mental model:** a window function computes a value *per row* in a partition
 (`PARTITION BY`), ordered by `ORDER BY`, without collapsing rows the way `GROUP BY`
-does. The frame (`ROWS BETWEEN ... AND ...`) decides which peer rows the function sees.
+does. The frame decides which peer rows the function sees: `ROWS` counts rows, while
+`RANGE` uses values (e.g. "the last 7 days"), which matters when some days have no rows.
 `LATERAL` lets a subquery reference the outer query's columns and run once per outer row.
 
 ---
@@ -122,8 +123,8 @@ aggregates, and query plan inspection.
 | Query | Concept | Use case |
 | ----- | ------- | -------- |
 | `[X1]` | Recursive CTE + `LEFT JOIN` | Monthly admissions calendar *including zero months* |
-| `[X2]` | `ROLLUP` | Insurance/type breakdown with subtotals |
-| `[X3]` | `GROUPING SETS` | Deliberate subtotal combinations |
+| `[X2]` | `ROLLUP` + `GROUPING()` | Insurance/type breakdown with labelled subtotals |
+| `[X3]` | `GROUPING SETS` + `GROUPING()` bitmask | Deliberate subtotal combinations |
 | `[X4]` | `FILTER` (pivot) | Admission types side-by-side per year |
 | `[X5]` | `percentile_cont` | Median / quartiles / p95 of ICU LOS |
 | `[X6]` | `mode()` | Most common admission type per era |
@@ -165,7 +166,7 @@ These tables are used throughout the examples (all under the `mimiciii` schema):
 
 **Useful item IDs** used in the examples (from `d_items` / `d_labitems`):
 
-- Heart Rate (chartevents, CV source): `211`
+- Heart Rate (chartevents): `211` (CareVue) and `220045` (MetaVision)
 - Potassium (labevents): `50971`
 
 For the full data dictionary, see the [MIMIC-III documentation](https://mimic.mit.edu/docs/iii/).

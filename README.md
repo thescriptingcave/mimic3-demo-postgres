@@ -48,10 +48,28 @@ Connect from any PostgreSQL client using the values in `.env`:
 
 | Service  | Role                                                                 |
 | -------- | -------------------------------------------------------------------- |
-| `postgres` | PostgreSQL 16. On first volume creation runs `sql/01-create-schema.sql` |
+| `postgres` | PostgreSQL 16. On first volume creation runs `sql/01-create-schema.sql`, then `sql/03-derived-views.sql` |
 | `loader`   | Waits for PostgreSQL to be healthy, then runs `sql/02-load-csvs.sh`, which `\copy`s every CSV from `./data` into the `mimiciii` schema |
 
 Data is persisted in the named volume `postgres_data`.
+
+## Cleaned views (`mimiciii_derived`)
+
+The raw `mimiciii` tables are loaded unchanged. `sql/03-derived-views.sql` adds views in a
+separate `mimiciii_derived` schema that correct known MIMIC-III quirks:
+
+| View | Quirk it corrects |
+| ---- | ----------------- |
+| `icustay_detail` | Patients over 89 have `dob` shifted ~300 years back. Adds `age` (91.4 for them), `age_group` (`'90+'`) and `age_is_shifted`. |
+| `admissions_ordered` | `hadm_id` is not chronological. Adds `admission_seq`, `prev_hadm_id` and `days_since_prev_discharge`, all based on `admittime`. |
+| `heart_rate` | Heart rate is item `211` (CareVue) or `220045` (MetaVision). Combines both, dropping error-flagged and impossible values. |
+| `labevents_labeled` | Lab labels are not unique (e.g. `Potassium` is both blood and body fluid). Adds `label`, `fluid` and `category` to each result. |
+
+To add the views to an existing database without re-importing:
+
+```bash
+docker exec -i mimic3-postgres psql -U mimic -d mimic < sql/03-derived-views.sql
+```
 
 ## Re-importing from scratch
 

@@ -12,8 +12,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./sql/01-create-schema.sql:/docker-entrypoint-initdb.d/01-create-schema.sql:ro
+      - ./sql/03-derived-views.sql:/docker-entrypoint-initdb.d/03-derived-views.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      # -h 127.0.0.1 checks over TCP: during first-time init the entrypoint's
+      # temporary server listens only on the Unix socket, so this stays
+      # unhealthy until init scripts finish and the real server is up.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 20
