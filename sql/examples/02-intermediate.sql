@@ -47,16 +47,19 @@ ORDER BY a.hadm_id;
 -- [I5] Self join -- a table joined to itself
 -- Use case: pairs of admissions for the same patient (readmissions).
 -- Aliasing the same table twice lets us compare a patient with themselves.
+-- Compare admittime, not hadm_id: MIMIC hadm_ids are random, not chronological.
+-- This lists every earlier/later pair; see LEAD() in 03-advanced.sql for
+-- consecutive readmissions only.
 SELECT a1.subject_id,
-       a1.hadm_id  AS first_admission,
-       a2.hadm_id  AS readmission,
-       a1.admittime AS first_admittime,
-       a2.admittime AS readmittime,
+       a1.hadm_id  AS earlier_admission,
+       a2.hadm_id  AS later_admission,
+       a1.admittime AS earlier_admittime,
+       a2.admittime AS later_admittime,
        round(EXTRACT(EPOCH FROM (a2.admittime - a1.admittime)) / 86400) AS days_between
 FROM admissions a1
 JOIN admissions a2 USING (subject_id)
-WHERE a1.hadm_id < a2.hadm_id
-ORDER BY a1.subject_id, a1.hadm_id;
+WHERE a1.admittime < a2.admittime
+ORDER BY a1.subject_id, a1.admittime, a2.admittime;
 
 -- [I6] Subquery in WHERE (scalar subquery)
 -- Use case: ICU stays longer than the average. The inner query returns ONE value.
@@ -80,9 +83,15 @@ ORDER BY n_diagnoses DESC;
 -- [I8] EXISTS -- "there exists at least one matching row"
 -- Use case: which patients with an ICU stay also have any microbiology culture?
 -- EXISTS stops at the first match, so it is often faster than count(*) > 0.
-SELECT DISTINCT p.subject_id, p.gender
+-- No DISTINCT needed: EXISTS never duplicates outer rows (unlike a JOIN).
+SELECT p.subject_id, p.gender
 FROM patients p
 WHERE EXISTS (
+    SELECT 1
+    FROM icustays i
+    WHERE i.subject_id = p.subject_id
+)
+  AND EXISTS (
     SELECT 1
     FROM microbiologyevents m
     WHERE m.subject_id = p.subject_id
@@ -91,38 +100,53 @@ ORDER BY p.subject_id;
 
 -- [I9] CASE -- conditional value in SELECT
 -- Use case: bucket ICU stays into short / normal / long categories.
+-- WHENs are checked in order. Handle NULL first, or it would fall into ELSE.
 SELECT subject_id, icustay_id, los,
        CASE
-           WHEN los <  2        THEN 'short'
-           WHEN los BETWEEN 2 AND 7 THEN 'normal'
-           ELSE                      'long'
+           WHEN los IS NULL THEN 'unknown'
+           WHEN los <  2    THEN 'short'
+           WHEN los <= 7    THEN 'normal'
+           ELSE                  'long'
        END AS los_category
 FROM icustays
 ORDER BY los DESC NULLS LAST
 LIMIT 15;
 
 -- [I10] COALESCE -- first non-NULL value
--- Use case: for deceased patients show the first known death date.
+-- Use case: for deceased patients, prefer the hospital death date and fall
+-- back to the Social Security record when the hospital date is missing.
+-- COALESCE picks the first non-NULL argument, not the earliest date
+-- (use LEAST() for that).
 SELECT subject_id, expire_flag, dod_hosp, dod_ssn,
-       COALESCE(dod_hosp, dod_ssn) AS first_known_death
+       COALESCE(dod_hosp, dod_ssn) AS death_date
 FROM patients
 WHERE expire_flag = 1
 ORDER BY subject_id
 LIMIT 10;
 
 -- [I11] String functions
--- Use case: normalize the ethnicity field for grouping.
--- UPPER(), LOWER(), REPLACE(), and LENGTH() are common text helpers.
-SELECT UPPER(ethnicity) AS ethnicity_upper, count(*)
+-- Use case: collapse detailed ethnicity labels into broad groups.
+-- split_part() takes the text before the first ' - ' (e.g. 'WHITE - RUSSIAN'
+-- becomes 'WHITE'). INITCAP() and LENGTH() are shown for comparison.
+SELECT split_part(ethnicity, ' - ', 1)           AS ethnicity_group,
+       INITCAP(split_part(ethnicity, ' - ', 1))  AS display_name,
+       LENGTH(split_part(ethnicity, ' - ', 1))   AS name_length,
+       count(*)                                  AS admissions
 FROM admissions
-GROUP BY ethnicity_upper
-ORDER BY count(*) DESC
+GROUP BY ethnicity_group
+ORDER BY admissions DESC
 LIMIT 8;
 
 -- [I12] Date arithmetic + EXTRACT
 -- Use case: patient age (years) at ICU admission, from date of birth.
+-- MIMIC caveat: patients older than 89 have their dob shifted ~300 years back
+-- for privacy, so their raw age is ~300. Report any age > 89 as '90+'
+-- (another common convention replaces it with 91.4, the true median age).
 SELECT p.subject_id, i.hadm_id, i.intime,
-       EXTRACT(YEAR FROM AGE(i.intime, p.dob))::int AS age_at_icu
+       EXTRACT(YEAR FROM AGE(i.intime, p.dob))::int AS raw_age,
+       CASE WHEN EXTRACT(YEAR FROM AGE(i.intime, p.dob)) > 89 THEN '90+'
+            ELSE EXTRACT(YEAR FROM AGE(i.intime, p.dob))::int::text
+       END AS age_at_icu
 FROM patients p
 JOIN icustays i USING (subject_id)
 ORDER BY i.intime
@@ -141,10 +165,13 @@ LIMIT 5;
 
 -- [I14] JOIN + WHERE on joined values (range filter)
 -- Use case: abnormal high potassium (> 5.2 mmol/L) events.
-SELECT l.subject_id, l.hadm_id, l.charttime, dl.label, l.valuenum, l.valueuom
+-- Filter on itemid, not label: several lab items share similar labels
+-- (e.g. blood vs whole-blood potassium). The JOIN just adds the readable label.
+SELECT l.subject_id, l.hadm_id, l.charttime, dl.label, dl.fluid,
+       l.valuenum, l.valueuom
 FROM labevents l
 JOIN d_labitems dl USING (itemid)
-WHERE dl.label = 'Potassium'
+WHERE l.itemid = 50971
   AND l.valuenum > 5.2
 ORDER BY l.charttime
 LIMIT 10;

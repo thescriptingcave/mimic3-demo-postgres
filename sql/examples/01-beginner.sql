@@ -17,7 +17,7 @@ FROM patients
 LIMIT 5;
 
 -- [B2] SELECT specific columns
--- Use case: pull only the fields you need (abc analysis, lighter queries).
+-- Use case: pull only the fields you need (clearer output, lighter queries).
 SELECT subject_id, gender, dob
 FROM patients
 ORDER BY subject_id
@@ -40,12 +40,15 @@ ORDER BY admittime
 LIMIT 10;
 
 -- [B5] WHERE + BETWEEN (inclusive range)
--- Use case: lab (potassium, itemid 50971) results collected in August 2102.
--- BETWEEN is shorthand for >= AND <=.
+-- Use case: potassium (itemid 50971) lab values between 3.5 and 5.0 mmol/L.
+-- BETWEEN is shorthand for >= AND <=, and both ends are included.
+-- Pitfall: avoid BETWEEN for timestamps. BETWEEN '2102-08-01' AND '2102-08-31'
+-- stops at 2102-08-31 00:00:00 and drops almost all of Aug 31. Use a half-open
+-- range instead: charttime >= '2102-08-01' AND charttime < '2102-09-01'.
 SELECT subject_id, hadm_id, charttime, value, valuenum
 FROM labevents
 WHERE itemid = 50971
-  AND charttime BETWEEN '2102-08-01' AND '2102-08-31'
+  AND valuenum BETWEEN 3.5 AND 5.0
 ORDER BY charttime
 LIMIT 10;
 
@@ -95,8 +98,10 @@ FROM admissions;
 
 -- [B12] Aggregate functions: SUM / AVG / MIN / MAX
 -- Use case: summary statistics of ICU length of stay (days).
+-- With no GROUP BY, the whole table is treated as one group.
 SELECT
     count(*)                 AS icu_stays,
+    round(sum(los), 2)       AS total_los_days,
     round(avg(los), 2)       AS avg_los_days,
     min(los)                 AS min_los_days,
     max(los)                 AS max_los_days
